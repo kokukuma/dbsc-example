@@ -1,136 +1,110 @@
-# FIDOでやりたいことの整理
-+ すぐに試せる環境作り
-  + FIDO Serverをあのlibraryを使って作る
-  + web/iOS/AndroidのClient
-+ 疑問に対する自身の考えを出す
+# DBSC Example Implementation
 
+This repository contains a complete implementation of the Device Bound Session Credentials (DBSC) protocol, which is a new web authentication mechanism that enhances security by cryptographically binding session credentials to specific devices.
 
-## MacOS / iOS
-### 現状
-+ version
-  + mac: 12.5.1
-  + ipad: 15.7
-+ できること
-  + 現在は、iCould key chaineを有効にしたらpasskey使える、しなかったら使えないくらい
-  + macではpasskeyはつかえないか。
-  + 実際に別デバイスで利用できること確認できてないな。
+## Overview
 
-### 次
-+ version
-  + mac: 13
-  + ios 16
-  + Safari 16
-+ できるようになること
-  + passkeyを使った
-    + iCloud Key Chaineを無効にすると, デバイスの生体認証そのものが使えなくなるな
-  + mac/ipad側でandroidをroaming authenticatorとして使う
+DBSC is a browser feature currently in development by Google Chrome that:
 
-+ 現状
-  + iPadを16にupgrade中
-  + macbookをVenturaに上げる
+1. Creates cryptographic keys in the device's secure hardware (TPM)
+2. Signs authentication challenges from servers using these device-bound keys
+3. Automatically refreshes short-lived cookies without user interaction
+4. Prevents stolen session cookies from being used on other devices
 
- 
+This technology significantly improves web security by mitigating session hijacking attacks, even if attackers manage to steal session cookies or tokens.
 
-## 解消する疑問
-### attestation format apple の検証
-+ libraryでサポートされているな.
+## Features
 
-### [attestation format](https://www.w3.org/TR/webauthn-2/#sctn-defined-attestation-formats)
-+ packed:
-  + Chrome, Mac Book as platform authenticator
-+ android-safetynet:
-  + Chrome, Pixel as platform authenticator
-+ none:
-  + Safari, iCloud keychange on iPad (passkey)
-  + Chrome, Pixel as roaming authenticator
-  + Chrome, iPad as roaming authenticator
-+ apple:
-  + Safari, iCloud keychange off iPad
-  + Safari, MacBook as platform authenticator
-+ fido-u2f:
-  + Chroem, yubikey
-+ tpm: -
-+ android-key: -
+- Complete server-side implementation in Go
+- Client-side simulation of DBSC functionality with JavaScript
+- Display of the authentication flow in the main application
+- Working login system with username/password authentication
+- Session management with automatic refreshing
+- Comprehensive documentation of the DBSC protocol
 
-### PINをなしにすることできるか
-+ server側でPIN or 生体認証を確認することができるか？
+## Getting Started
 
-+ User Verification Methodってので伝えることはできるのか
-  + https://fidoalliance.org/specs/fido-v2.0-id-20180227/fido-registry-v2.0-id-20180227.html#user-verification-methods
-  + https://developers.google.com/android/reference/com/google/android/gms/fido/fido2/api/common/UserVerificationMethodExtension
+### Prerequisites
 
-+ library的には未サポートな感じ
-  + https://github.com/duo-labs/webauthn/issues/134
+- Go 1.17 or later
+- Chrome 115 or later (for native DBSC support)
 
-+ Android/Chromeでのみ帰ってきた　
-  + extensionsに `uvm:true` 渡したら, ClientExtensionResultsがかえって来る.
-  + User Verification Methods: 134
-  + なんか, 使われたものというか, サポートしている要素返してる気が... USER_VERIFY_FINGERPRINT, USER_VERIFY_PATTERN, USER_VERIFY_PASSCODE
-    + https://developers.google.com/android/reference/com/google/android/gms/fido/fido2/api/common/UserVerificationMethods
+### Installation
 
-+ 一方で, 例えばAndroidとか, 指紋認証すぐ反応しなくなるから, PINを制限するとかしないほうがいいと思う.
+1. Clone this repository:
+   ```
+   git clone https://github.com/kokukuma/dbsc-example.git
+   cd dbsc-example
+   ```
 
-### passkeyって、server側で使うか使わないか判別できるか？
-+ iCloud keychainを、onにするとpasskey利用/offにするとpasskey使わないとなってそう
-+ AAGUIDで見分けることができるかな？
-+ attestation formatが違っているが, 正直意図的なものかどうかは怪しい...
-  + passkey:none
-  + not passkey:apple
+2. Install dependencies:
+   ```
+   go mod download
+   ```
 
+3. Build and run the server:
+   ```
+   go run cmd/server/server.go
+   ```
 
-### passkeyにした時の、SNS乗っ取りの対応をどうするか？
+4. Access the application at `http://localhost:8080`
 
-### 複数のRPID/Originにする場合どうするか？
+### Testing with DBSC Support
 
-### roaming authenticatorを許可する場合, attestationはちゃんと検証したいところ
-+ AuthenticatorAttachmentだけではない
-+ しかし、現状、どこまで確認しているか？
+For the full DBSC experience in Chrome:
 
+1. Open Chrome 115 or later
+2. Go to `chrome://flags/#enable-standard-device-bound-session-credentials` 
+3. Set to "Enabled"
+4. Restart Chrome
+5. Visit the application at `http://localhost:8080`
 
+For browsers without native DBSC support, the application includes a JavaScript simulation that demonstrates how DBSC works.
 
-## ngrok settings
-```
-$ ngrok config add-authtoken (token)
+## Demo
 
-$ ngrok config edit
-version: "2"
-authtoken: (token)
-tunnels:
-  fido-server:
-    addr: 8080
-    proto: http
-    subdomain: fido-kokukuma
-  web-client:
-    addr: 8081
-    proto: http
-    subdomain: client-kokukuma
-```
+The demo application includes:
 
-## metadata
-+ metadata package, v3への対応ができてないぽい.
-  + github.com/duo-labs/webauthn/metadata/metadata.go
-+ 修正が必要な点
-  + 1. getMetdataTOCSigningTrustAnchorを追加
-  + 2. revoke.VerifyCertificateをコメントアウト...
-  + 3. MetadataStatementの型変更
-  + 4. AuthenticatorAttestationTypeをstringにする
-+ これ待つほうがいいかな.
-  + https://github.com/duo-labs/webauthn/pull/146/files#diff-bc1663385db50e33df147e8b0da3b8694f87707081a013c63bc8c6eacb9984d5
-  + それまではv2使うか?
-  + でもトークン取らなきゃいけないとかだるいよな...
-+ 取得できたの
-  + たしかに、packedとandroid-safetynetだけ
+1. **Homepage with login**: A standard login form with username/password authentication.
+2. **Client-side DBSC library**: A fully-functional JavaScript implementation of DBSC.
 
-## iOS/Androidでの試し
-+ 昔やった試し
-  + /Users/kokukuma/Desktop/ios-app/fido2
-  + /Users/kokukuma/developmment/fido2-codelab
-  + /Users/kokukuma/developmment/authentication/authentication
-+ この辺のことを雰囲気やる
-  + https://docs.flutter.dev/get-started/install/macos
-  + https://docs.flutter.dev/get-started/codelab
+For demo purposes, use the following credentials:
+- Username: `dbsc-user`
+- Password: `password`
 
+## How DBSC Works
 
+See [DBSC.md](DBSC.md) for a complete explanation of the DBSC protocol and its security benefits.
 
+For technical implementation details, see [DBSC-implementation-notes.md](DBSC-implementation-notes.md).
 
+## Project Structure
 
+- `cmd/server/server.go` - Main server application
+- `cmd/client/` - Client-side web application
+  - `dbsc-client.js` - JavaScript implementation of DBSC
+  - `login.html` - Login page
+  - `index.html` - Homepage
+- `internal/server/server.go` - Server-side DBSC implementation
+
+## Security Considerations
+
+This implementation is for demonstration and educational purposes. For production use:
+
+1. Always use HTTPS for all DBSC communications
+2. Implement fallback for non-DBSC browsers
+3. Use HTTP-only, Secure cookies with proper SameSite attributes
+4. Store keys securely in server-side databases
+5. Rotate challenges and never reuse them
+6. Implement rate limiting to prevent brute force attacks
+7. Set appropriate timeouts for challenges and session registration
+
+## Resources
+
+- [Google DBSC Explainer](https://github.com/WICG/device-bound-session-credentials/blob/main/explainer.md)
+- [WICG Proposal](https://github.com/WICG/device-bound-session-credentials)
+- [Chrome Status](https://chromestatus.com/feature/5270503774167040)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

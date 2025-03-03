@@ -3,78 +3,399 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Simple Login Demo</title>
+  <title>DBSC Demo</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      background-color: #f4f4f4;
+      background-color: #f8f9fa;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    header {
+      background-color: #4285f4;
+      color: white;
+      padding: 20px 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+    .header-content {
       display: flex;
-      justify-content: center;
+      justify-content: space-between;
       align-items: center;
-      height: 100vh;
+    }
+    .site-title {
+      font-size: 24px;
+      font-weight: bold;
       margin: 0;
     }
-    .login-container {
+    .user-info {
+      display: flex;
+      align-items: center;
+    }
+    .auth-btn {
+      display: inline-block;
       background-color: white;
+      color: #4285f4;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-weight: 500;
+      text-decoration: none;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .auth-btn:hover {
+      background-color: #f1f3f4;
+    }
+    .username {
+      margin-right: 15px;
+      font-weight: 500;
+    }
+    main {
+      padding: 40px 0;
+    }
+    .welcome-section {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
       padding: 30px;
-      border-radius: 5px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-      width: 300px;
+      margin-bottom: 30px;
+      text-align: center;
+    }
+    h1 {
+      color: #333;
+      margin-top: 0;
+    }
+    p {
+      line-height: 1.6;
+      color: #555;
+    }
+    .hidden {
+      display: none;
+    }
+    .content-section {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 30px;
+      margin-bottom: 30px;
     }
     h2 {
+      color: #4285f4;
+      margin-top: 0;
+    }
+    footer {
+      background-color: #f1f3f4;
+      padding: 20px 0;
       text-align: center;
-      margin-bottom: 20px;
-    }
-    .form-group {
-      margin-bottom: 15px;
-    }
-    label {
-      display: block;
-      margin-bottom: 5px;
-      font-weight: bold;
-    }
-    input {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      box-sizing: border-box;
-    }
-    button {
-      width: 100%;
-      padding: 10px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 16px;
-    }
-    button:hover {
-      background-color: #45a049;
+      color: #666;
+      font-size: 14px;
+      margin-top: 40px;
     }
   </style>
 </head>
 <body>
-  <div class="login-container" id="login-form">
-    <h2>Login</h2>
-    <div class="form-group">
-      <label for="username">Username</label>
-      <input type="text" id="username" placeholder="Enter your username">
+  <header>
+    <div class="container">
+      <div class="header-content">
+        <h1 class="site-title">DBSC Demo</h1>
+        <div class="user-info">
+          <div id="logged-in" class="hidden">
+            <span class="username" id="username-display"></span>
+            <a href="/logout" class="auth-btn">Sign Out</a>
+          </div>
+          <div id="logged-out">
+            <a href="/login" class="auth-btn">Sign In</a>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="form-group">
-      <label for="password">Password</label>
-      <input type="password" id="password" placeholder="Enter your password">
+  </header>
+
+  <main class="container">
+    <section class="welcome-section">
+      <h1>DBSC Demo App</h1>
+      <p>A simple demonstration of Device Bound Session Credentials (DBSC).</p>
+      <div id="welcome-logged-in" class="hidden">
+        <p>You are currently signed in. You can access all features of the application.</p>
+        
+        <!-- DBSC Status Panel -->
+        <div id="dbsc-status" style="margin-top: 20px; padding: 15px; border-radius: 5px; background-color: #f1f3f4; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <h3 style="margin-top: 0; color: #4285f4; display: flex; align-items: center;">
+            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px;" id="status-indicator"></span>
+            Session Status
+          </h3>
+          
+          <div style="margin-bottom: 8px; text-align: center; padding: 10px; border-radius: 4px; font-weight: bold;" id="dbsc-protection-status">
+            <!-- Will be dynamically updated -->
+          </div>
+            
+          <div style="display: flex; margin-bottom: 15px;">
+            <div style="flex: 1; padding-right: 10px;">
+              <div style="font-weight: bold; margin-bottom: 5px;">Cookies</div>
+              <div id="dbsc-cookie-status" style="margin-bottom: 5px; font-size: 14px;"></div>
+              <div id="session-id-status" style="margin-bottom: 5px; font-size: 14px;"></div>
+            </div>
+            <div style="flex: 1; padding-left: 10px; border-left: 1px solid #ddd;">
+              <div style="font-weight: bold; margin-bottom: 5px;">DBSC Protection</div>
+              <div id="dbsc-cookie-valid" style="margin-bottom: 5px; font-size: 14px;"></div>
+              <div id="dbsc-expiry" style="font-size: 14px;"></div>
+            </div>
+          </div>
+          
+          <div style="font-size: 12px; background-color: rgba(66, 133, 244, 0.1); padding: 8px; border-radius: 4px;">
+            <div id="tech-details" style="margin-bottom: 5px;"></div>
+            <div id="last-refresh" style="font-style: italic;"></div>
+            
+            <!-- Button to recreate auth_cookie - only shown when needed -->
+            <div id="recreate-auth-container" style="margin-top: 10px; display: none;">
+              <button id="recreate-auth-button" style="background-color: #4285f4; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 14px;">
+                Recreate DBSC Protection
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="welcome-logged-out">
+        <p>Sign in to access the full features of the application.</p>
+      </div>
+    </section>
+
+    <section class="content-section">
+      <h2>What is DBSC?</h2>
+      <p>Device Bound Session Credentials (DBSC) is a new security feature that:</p>
+      <ul>
+        <li>Binds web sessions to your specific device</li>
+        <li>Uses your device's secure hardware (TPM) to store cryptographic keys</li>
+        <li>Automatically refreshes short-lived session cookies</li>
+        <li>Prevents session hijacking even if cookies are stolen</li>
+      </ul>
+    </section>
+    
+    <section class="content-section" id="dbsc-info-section">
+      <h2>Getting Started</h2>
+      
+      <h3>Usage Instructions</h3>
+      <ol>
+        <li>Click "Sign In" in the top-right corner</li>
+        <li>Use username: <code>dbsc-user</code> and password: <code>password</code></li>
+        <li>Once logged in, you'll see your DBSC session status</li>
+      </ol>
+      
+      <h3>Browser Requirements</h3>
+      <p>To use DBSC features:</p>
+      <ol>
+        <li>Use Chrome 115 or later</li>
+        <li>Enable the following flags and restart Chrome:</li>
+        <ul>
+          <li><code>chrome://flags/#enable-standard-device-bound-session-credentials</code></li>
+          <li><code>chrome://flags/#enable-bound-session-credentials-software-keys-for-manual-testing</code></li>
+          <li><code>chrome://flags/#enable-standard-device-bound-session-persistence</code></li>
+        </ul>
+      </ol>
+      
+      <h3>DBSC Cookies</h3>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+        <tr style="background-color: #f1f3f4;">
+          <th style="text-align: left; padding: 8px; border: 1px solid #ddd;">Cookie</th>
+          <th style="text-align: left; padding: 8px; border: 1px solid #ddd;">Purpose</th>
+          <th style="text-align: left; padding: 8px; border: 1px solid #ddd;">Lifetime</th>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border: 1px solid #ddd;"><code>session_id</code></td>
+          <td style="padding: 8px; border: 1px solid #ddd;">Identifies your session</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">10 minutes</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px; border: 1px solid #ddd;"><code>auth_cookie</code></td>
+          <td style="padding: 8px; border: 1px solid #ddd;">Device-bound authentication</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">10 minutes (auto-refreshed)</td>
+        </tr>
+      </table>
+      
+      <h3>Testing DBSC Protection States</h3>
+      <div style="margin-top: 10px; background-color: #f8f9fa; padding: 10px; border-radius: 4px; border-left: 4px solid #5f6368;">
+        <p>With the updated implementation, you can now test different DBSC protection states while staying logged in:</p>
+        
+        <ol style="margin-top: 10px; margin-bottom: 15px;">
+          <li><strong>Test "Not Protected by DBSC"</strong> (yellow warning):
+            <ul>
+              <li>Open Chrome DevTools (F12) → Application tab → Cookies</li>
+              <li>Delete only the <code>auth_cookie</code> (keep <code>session_id</code>)</li>
+              <li>Refresh the page - you'll remain logged in but see the yellow DBSC warning</li>
+            </ul>
+          </li>
+          <li><strong>Test "Invalid DBSC Protection"</strong> (red warning):
+            <ul>
+              <li>Open Chrome DevTools (F12) → Application tab → Cookies</li>
+              <li>Edit the <code>auth_cookie</code> value (add "-invalid" to the end)</li>
+              <li>Refresh the page - you'll remain logged in but see the red DBSC warning</li>
+            </ul>
+          </li>
+          <li><strong>Restore Normal Protection</strong> (green status):
+            <ul>
+              <li><a href="/logout" style="color: #34a853; font-weight: bold;">Log out and log back in</a></li>
+            </ul>
+          </li>
+        </ol>
+        
+        <div style="font-size: 12px; color: #5f6368; margin-top: 10px;">
+          <strong>Important:</strong> In this demo, you'll stay logged in even without proper DBSC protection, 
+          allowing you to see how the protection status is displayed. In a production environment, 
+          missing or invalid DBSC protection would typically require re-authentication.
+        </div>
+      </div>
+      
+      <h3>About DBSC</h3>
+      <p>Device Bound Session Credentials (DBSC) is a security feature that binds your web session to your specific device using cryptographic keys stored in secure hardware, preventing session hijacking attacks.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>&copy; 2025 DBSC Demo. All rights reserved.</p>
     </div>
-    <button onclick="login()">Login</button>
-  </div>
+  </footer>
 
-  <div class="login-container" id="success-page" style="display: none;">
-    <h2>Login Successful</h2>
-    <p>Welcome! You have successfully logged in.</p>
-    <button onclick="logout()">Logout</button>
-  </div>
-
-  <script src="index.js"></script>
+  <!-- This script will be replaced with actual username by the server when user is logged in -->
+  <script id="user-data" type="application/json">{ "loggedIn": false, "username": "" }</script>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Get user data from the injected script tag
+      const userData = JSON.parse(document.getElementById('user-data').textContent);
+      
+      // Set up the recreate auth button handler
+      const recreateAuthButton = document.getElementById('recreate-auth-button');
+      if (recreateAuthButton) {
+        recreateAuthButton.addEventListener('click', async function() {
+          try {
+            // First, trigger the DBSC refresh endpoint
+            const response = await fetch('/securesession/refresh', {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            if (response.ok) {
+              // Refresh was successful, reload the page to show updated status
+              window.location.reload();
+            } else {
+              console.error('Failed to recreate DBSC protection:', response.status);
+              alert('Failed to recreate DBSC protection. Please try logging out and back in.');
+            }
+          } catch (error) {
+            console.error('Error recreating DBSC protection:', error);
+            alert('Error recreating DBSC protection: ' + error.message);
+          }
+        });
+      }
+      
+      if (userData.loggedIn) {
+        // User is logged in
+        document.getElementById('logged-in').classList.remove('hidden');
+        document.getElementById('logged-out').classList.add('hidden');
+        document.getElementById('welcome-logged-in').classList.remove('hidden');
+        document.getElementById('welcome-logged-out').classList.add('hidden');
+        
+        // Set username
+        document.getElementById('username-display').textContent = userData.username;
+        
+        // Update DBSC status information
+        const dbscCookieStatus = document.getElementById('dbsc-cookie-status');
+        const dbscCookieValid = document.getElementById('dbsc-cookie-valid');
+        const sessionIdStatus = document.getElementById('session-id-status');
+        const dbscExpiry = document.getElementById('dbsc-expiry');
+        const techDetails = document.getElementById('tech-details');
+        const lastRefresh = document.getElementById('last-refresh');
+        const statusIndicator = document.getElementById('status-indicator');
+        const protectionStatus = document.getElementById('dbsc-protection-status');
+        
+        // Format current time
+        const now = new Date();
+        const timeString = now.toLocaleTimeString();
+        
+        // Session ID status (always present when logged in)
+        sessionIdStatus.innerHTML = `<span style="color: green; font-weight: bold;">✓</span> <strong>session_id:</strong> Present`;
+        
+        // Add simulated expiry time (10 minutes from now)
+        const expiryTime = new Date(now.getTime() + 10*60000);
+        const expiryTimeString = expiryTime.toLocaleTimeString();
+        
+        // Check for DBSC cookie presence and validity
+        if (userData.hasDbscCookie) {
+          dbscCookieStatus.innerHTML = `<span style="color: green; font-weight: bold;">✓</span> <strong>auth_cookie:</strong> Present`;
+          
+          // Check if DBSC cookie is valid
+          if (userData.dbscCookieValid) {
+            // Set highly visible protection status
+            protectionStatus.innerHTML = '✓ SESSION PROTECTED BY DBSC';
+            protectionStatus.style.backgroundColor = '#e6f4ea';
+            protectionStatus.style.color = '#137333';
+            
+            // Set status indicator
+            statusIndicator.style.backgroundColor = '#34a853';
+            
+            // Update detail fields
+            dbscCookieValid.innerHTML = `<span style="color: green; font-weight: bold;">✓</span> <strong>Status:</strong> Active & device-bound`;
+            dbscExpiry.innerHTML = `<span style="color: green; font-weight: bold;">✓</span> <strong>Expires:</strong> ${expiryTimeString} (auto-refreshes)`;
+            techDetails.innerHTML = `<strong>DBSC Details:</strong> Session cryptographically bound to this device using TPM-stored keys`;
+            lastRefresh.innerHTML = `Last verified: ${timeString}`;
+            
+            // Add a styling to indicate a healthy status
+            document.getElementById('dbsc-status').style.backgroundColor = '#e6f4ea';
+            document.getElementById('dbsc-status').style.borderLeft = '4px solid #34a853';
+          } else {
+            // Set highly visible warning status
+            protectionStatus.innerHTML = '⚠️ INVALID DBSC PROTECTION';
+            protectionStatus.style.backgroundColor = '#fce8e6';
+            protectionStatus.style.color = '#c5221f';
+            
+            statusIndicator.style.backgroundColor = '#ea4335';
+            dbscCookieValid.innerHTML = `<span style="color: red; font-weight: bold;">✗</span> <strong>Status:</strong> Invalid signature`;
+            dbscExpiry.innerHTML = `<span style="color: red; font-weight: bold;">✗</span> <strong>Security:</strong> Possible session hijacking detected`;
+            techDetails.innerHTML = `<strong>Warning:</strong> Device signature validation failed. This cookie may have been stolen.`;
+            lastRefresh.innerHTML = `Detected: ${timeString}`;
+            
+            // Add a styling to indicate a warning state
+            document.getElementById('dbsc-status').style.backgroundColor = '#fce8e6';
+            document.getElementById('dbsc-status').style.borderLeft = '4px solid #ea4335';
+          }
+        } else {
+          // Set highly visible warning status
+          protectionStatus.innerHTML = '⚠️ SESSION NOT PROTECTED BY DBSC';
+          protectionStatus.style.backgroundColor = '#fef7e0';
+          protectionStatus.style.color = '#b06000';
+          
+          statusIndicator.style.backgroundColor = '#fbbc04';
+          dbscCookieStatus.innerHTML = `<span style="color: orange; font-weight: bold;">!</span> <strong>auth_cookie:</strong> Missing`;
+          dbscCookieValid.innerHTML = `<span style="color: orange; font-weight: bold;">!</span> <strong>Status:</strong> Limited protection`;
+          dbscExpiry.innerHTML = `<span style="color: orange; font-weight: bold;">!</span> <strong>Expires:</strong> ${expiryTimeString}`;
+          techDetails.innerHTML = `<strong>DBSC Notice:</strong> Session is not protected by device binding`;
+          lastRefresh.innerHTML = `Checked: ${timeString}`;
+          
+          // Show the recreate auth button
+          document.getElementById('recreate-auth-container').style.display = 'block';
+          
+          // Add a styling to indicate a warning state
+          document.getElementById('dbsc-status').style.backgroundColor = '#fef7e0';
+          document.getElementById('dbsc-status').style.borderLeft = '4px solid #fbbc04';
+        }
+      } else {
+        // User is not logged in
+        document.getElementById('logged-in').classList.add('hidden');
+        document.getElementById('logged-out').classList.remove('hidden');
+        document.getElementById('welcome-logged-in').classList.add('hidden');
+        document.getElementById('welcome-logged-out').classList.remove('hidden');
+      }
+    });
+  </script>
 </body>
 </html>
