@@ -10,7 +10,7 @@ import (
 
 // Configuration constants
 const (
-	cookieMaxAge = 10 // 10 minutes as recommended in the DBSC spec
+	cookieMaxAge = 600 // 10 minutes as recommended in the DBSC spec
 )
 
 // HandleDbscStartSession handles DBSC session registration
@@ -197,7 +197,7 @@ func (s *Server) HandleDbscStartSession(w http.ResponseWriter, r *http.Request) 
 			{
 				Type:       "cookie",
 				Name:       cookieName,
-				Attributes: "Path=/; Max-Age=10; HttpOnly; Secure; SameSite=None",
+				Attributes: "Path=/; Max-Age=600; HttpOnly; Secure; SameSite=None",
 			},
 		},
 	}
@@ -435,7 +435,7 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 
 	// Update the device bound session expiration time
 	now := time.Now()
-	session.ExpiresAt = now.Add(time.Duration(cookieMaxAge) * time.Second)
+	session.ExpiresAt = now.Add(time.Duration(sessionMaxAge) * time.Second)
 
 	// Generate a new auth token
 	newAuthToken, err := generateSessionID()
@@ -490,10 +490,31 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 		Secure:   true, // Required for SameSite=None
 	})
 
-	// Create response according to the spec
+	// Get proper scheme (http/https) for origin
 	response := DbscSessionRefreshResponse{
 		SessionIdentifier: deviceBoundSessionId,
-		Continue:          true, // Continue the session
+		RefreshURL:        fmt.Sprintf("%s://%s/securesession/refresh", scheme, r.Host),
+		Scope: struct {
+			Origin        string `json:"origin"`
+			IncludeSite   bool   `json:"include_site"`
+			DeferRequests bool   `json:"defer_requests"`
+		}{
+			Origin:        fmt.Sprintf("%s://%s", scheme, r.Host),
+			IncludeSite:   true,
+			DeferRequests: true,
+		},
+		Credentials: []struct {
+			Type       string `json:"type"`
+			Name       string `json:"name"`
+			Attributes string `json:"attributes"`
+		}{
+			{
+				Type:       "cookie",
+				Name:       cookieName,
+				Attributes: "Path=/; Max-Age=600; HttpOnly; Secure; SameSite=None",
+			},
+		},
+		Continue: true, // Continue the session
 	}
 
 	// Set response headers

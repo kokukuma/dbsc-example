@@ -56,7 +56,18 @@ type DbscSessionRegistrationResponse struct {
 // DbscSessionRefreshResponse is the response for refreshing a DBSC session
 type DbscSessionRefreshResponse struct {
 	SessionIdentifier string `json:"session_identifier"`
-	Continue          bool   `json:"continue"`
+	RefreshURL        string `json:"refresh_url"`
+	Scope             struct {
+		Origin        string `json:"origin"`
+		IncludeSite   bool   `json:"include_site"`
+		DeferRequests bool   `json:"defer_requests"`
+	} `json:"scope"`
+	Credentials []struct {
+		Type       string `json:"type"`
+		Name       string `json:"name"`
+		Attributes string `json:"attributes"`
+	} `json:"credentials"`
+	Continue bool `json:"continue"`
 }
 
 // DbscSessionRefreshRequest is the request for refreshing a DBSC session
