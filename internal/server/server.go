@@ -17,7 +17,7 @@ type Server struct {
 	dbscChallenges       map[string]DbscChallenge
 	dbscServerPrivateKey *ecdsa.PrivateKey
 	dbscServerPublicKey  string
-	authToLoginSession   map[string]string // Maps auth_cookie values to login session IDs
+	authTokenToDeviceSession   map[string]string // Maps auth_cookie values to device bound session IDs
 	mu                   sync.RWMutex
 }
 
@@ -50,7 +50,7 @@ func NewServer(webauthn interface{}) *Server {
 		dbscChallenges:       make(map[string]DbscChallenge),
 		dbscServerPrivateKey: privateKey,
 		dbscServerPublicKey:  string(publicKeyPEM),
-		authToLoginSession:   make(map[string]string), // Maps auth_cookie values to login session IDs
+		authTokenToDeviceSession:   make(map[string]string), // Maps auth_cookie values to device bound session IDs
 	}
 
 	log.Println("DBSC server initialized with ES256 key pair")

@@ -2,85 +2,35 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
 )
 
-// Configuration constants
-const (
-	cookieMaxAge = 600 // 10 minutes as recommended in the DBSC spec
-)
-
 // HandleDbscStartSession handles DBSC session registration
 func (s *Server) HandleDbscStartSession(w http.ResponseWriter, r *http.Request) {
-	// Log full request details
-	log.Printf("===== [DBSC] START SESSION REQUEST =====")
-	log.Printf("Method: %s, Path: %s", r.Method, r.URL.Path)
-	log.Printf("User-Agent: %s", r.UserAgent())
-	log.Printf("Remote Address: %s", r.RemoteAddr)
-
-	// Log all headers
-	log.Printf("--- Headers ---")
-	for name, values := range r.Header {
-		for _, value := range values {
-			log.Printf("  %s: %s", name, value)
-		}
-	}
-
-	// Log cookies
-	log.Printf("--- Cookies ---")
-	for _, cookie := range r.Cookies() {
-		log.Printf("  %s: %s", cookie.Name, cookie.Value)
-	}
+	// Log the incoming request
+	logRequest("START SESSION", r)
 
 	// This endpoint only handles the response to the Sec-Session-Registration
 	// header that was sent during login. It should never send the initial challenge.
-	secSessionResponse := r.Header.Get("Sec-Session-Response")
-
-	// If no Sec-Session-Response, this should be an error - the initial challenge
-	// should have been sent during login, not here.
-	if secSessionResponse == "" {
-		log.Printf("[DBSC] Error: No Sec-Session-Response header found. The challenge should have been sent during login.")
+	secSessionResponse, err := parseDbscResponse(r)
+	if err != nil {
+		log.Printf("[DBSC] Error: %v. The challenge should have been sent during login.", err)
 		http.Error(w, "Missing DBSC response", http.StatusBadRequest)
 		return
 	}
 
-	// Get the challenge ID from cookie
-	cookie, err := r.Cookie("dbsc_challenge")
-	if err != nil || cookie.Value == "" {
-		log.Printf("No DBSC challenge cookie found")
-		http.Error(w, "Missing challenge cookie", http.StatusBadRequest)
-		return
-	}
-
-	challengeId := cookie.Value
-
-	// Get the challenge data
-	s.mu.RLock()
-	challenge, exists := s.dbscChallenges[challengeId]
-	s.mu.RUnlock()
-
-	if !exists {
-		log.Printf("Challenge not found: %s", challengeId)
+	// Get and verify the DBSC challenge
+	challengeId, challenge, err := s.getAndVerifyDbscChallenge(r)
+	if err != nil {
+		log.Printf("[DBSC] %v", err)
 		http.Error(w, "Invalid challenge", http.StatusBadRequest)
-		return
-	}
-
-	// Check if challenge has expired
-	if time.Now().After(challenge.ExpiresAt) {
-		log.Printf("Challenge expired: %s", challengeId)
-		s.mu.Lock()
-		delete(s.dbscChallenges, challengeId)
-		s.mu.Unlock()
-		http.Error(w, "Challenge expired", http.StatusBadRequest)
 		return
 	}
 
 	// Extract JWT from the Sec-Session-Response header
 	clientToken := secSessionResponse
-
 	log.Printf("[DBSC] Processing JWT from Sec-Session-Response: %s", clientToken[:50]+"...")
 
 	// Parse the JWT to extract the payload without verification
@@ -92,8 +42,8 @@ func (s *Server) HandleDbscStartSession(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Verify that the challenge is in the jti claim
-	if jwtPayload.Jti != challenge.Challenge {
-		log.Printf("[DBSC] Challenge mismatch: %s vs %s", jwtPayload.Jti, challenge.Challenge)
+	if err := validateDbscJwtPayload(jwtPayload, challenge); err != nil {
+		log.Printf("[DBSC] %v", err)
 		http.Error(w, "Challenge mismatch", http.StatusBadRequest)
 		return
 	}
@@ -115,147 +65,44 @@ func (s *Server) HandleDbscStartSession(w http.ResponseWriter, r *http.Request) 
 		log.Printf("[DBSC] No subject in JWT, using username from challenge: %s", username)
 	}
 
-	// Create a device bound session ID
-	deviceBoundSessionId, err := generateSessionID()
+	// Create a device bound session and get an auth token
+	deviceBoundSessionId, authToken, err := s.createDeviceBoundSession(username)
 	if err != nil {
-		log.Printf("Error generating device bound session ID: %v", err)
+		log.Printf("[DBSC] %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	// Create a server-side device bound session
-	now := time.Now()
-	session := Session{
-		Username:  username,
-		CreatedAt: now,
-		ExpiresAt: now.Add(time.Duration(sessionMaxAge) * time.Second),
-	}
+	// Clear the challenge cookie and remove the challenge from the server
+	s.clearDbscChallenge(w, challengeId)
 
-	// Generate a secure auth_cookie value (different from sessionId)
-	authToken, err := generateSessionID()
-	if err != nil {
-		log.Printf("Error generating auth token: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	// Set auth cookie
+	setAuthCookie(w, r, authToken)
 
-	s.mu.Lock()
-	// Store the new device bound session
-	s.sessions[deviceBoundSessionId] = session
-	// Map auth token directly to device bound session ID
-	s.authToLoginSession[authToken] = deviceBoundSessionId
-	delete(s.dbscChallenges, challengeId) // Remove the used challenge
-	s.mu.Unlock()
-
-	log.Printf("[DBSC] Auth cookie bound to device bound session: %s", deviceBoundSessionId[:10]+"...")
-
-	// Clear the challenge cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "dbsc_challenge",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-	})
-
-	// Set auth cookie with short expiration
-	cookieName := "auth_cookie"
-	cookieValue := authToken // Use the secure token instead of sessionId
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
-		Value:    cookieValue,
-		Path:     "/",
-		MaxAge:   cookieMaxAge,
-		HttpOnly: true,
-		SameSite: http.SameSiteNoneMode,
-		Secure:   true, // Required for SameSite=None
-	})
-
-	// Get proper scheme (http/https) for origin
-	scheme := "https"
-
-	// Create the DBSC session registration response according to the spec
-	response := DbscSessionRegistrationResponse{
-		SessionIdentifier: deviceBoundSessionId,
-		RefreshURL:        fmt.Sprintf("%s://%s/securesession/refresh", scheme, r.Host),
-		Scope: struct {
-			Origin        string `json:"origin"`
-			IncludeSite   bool   `json:"include_site"`
-			DeferRequests bool   `json:"defer_requests"`
-		}{
-			Origin:        fmt.Sprintf("%s://%s", scheme, r.Host),
-			IncludeSite:   true,
-			DeferRequests: true,
-		},
-		Credentials: []struct {
-			Type       string `json:"type"`
-			Name       string `json:"name"`
-			Attributes string `json:"attributes"`
-		}{
-			{
-				Type:       "cookie",
-				Name:       cookieName,
-				Attributes: "Path=/; Max-Age=600; HttpOnly; Secure; SameSite=None",
-			},
-		},
-	}
+	// Create the DBSC session registration response
+	response := createDbscRegistrationResponse(deviceBoundSessionId, r)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 
-	// Get response body before encoding
-	responseJSON, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		log.Printf("Error marshaling response: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	// Log the response information
+	sessionInfo := map[string]string{
+		"User":                 username,
+		"DeviceBoundSessionId": deviceBoundSessionId,
+		"AuthToken":            authToken,
 	}
-
-	// Log the complete response
-	log.Printf("===== [DBSC] START SESSION RESPONSE =====")
-	log.Printf("Status: 200 OK")
-	log.Printf("--- Headers ---")
-	for name, values := range w.Header() {
-		for _, value := range values {
-			log.Printf("  %s: %s", name, value)
-		}
-	}
-	log.Printf("--- Body ---")
-	log.Printf("%s", string(responseJSON))
-	log.Printf("--- Summary ---")
-	log.Printf("User: %s", username)
-	log.Printf("DeviceBoundSessionId: %s", deviceBoundSessionId)
-	log.Printf("AuthToken: %s", authToken)
-	log.Printf("=====================================")
+	logResponse("START SESSION", w, http.StatusOK, response, sessionInfo)
 
 	// Send the response
+	responseJSON, _ := json.MarshalIndent(response, "", "  ")
 	w.Write(responseJSON)
 }
 
 // HandleDbscRefreshSession handles DBSC session refresh
 func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request) {
-	// Log full request details
-	log.Printf("===== [DBSC] REFRESH SESSION REQUEST =====")
-	log.Printf("Method: %s, Path: %s", r.Method, r.URL.Path)
-	log.Printf("User-Agent: %s", r.UserAgent())
-	log.Printf("Remote Address: %s", r.RemoteAddr)
-
-	// Log all headers
-	log.Printf("--- Headers ---")
-	for name, values := range r.Header {
-		for _, value := range values {
-			log.Printf("  %s: %s", name, value)
-		}
-	}
-
-	// Log cookies
-	log.Printf("--- Cookies ---")
-	for _, cookie := range r.Cookies() {
-		log.Printf("  %s: %s", cookie.Name, cookie.Value)
-	}
+	// Log the incoming request
+	logRequest("REFRESH SESSION", r)
 
 	// Only proceed with POST
 	if r.Method != http.MethodPost {
@@ -264,14 +111,15 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 	}
 
 	// Check for device bound session ID in the header
-	deviceBoundSessionId := r.Header.Get("Sec-Session-Id")
-	secSessionResponse := r.Header.Get("Sec-Session-Response")
-
-	if deviceBoundSessionId == "" {
-		log.Printf("No device bound session ID provided")
+	deviceBoundSessionId, err := getDbscSessionId(r)
+	if err != nil {
+		log.Printf("No device bound session ID provided: %v", err)
 		http.Error(w, "Missing session ID", http.StatusBadRequest)
 		return
 	}
+
+	// Get Sec-Session-Response header if present
+	secSessionResponse := r.Header.Get("Sec-Session-Response")
 
 	// Verify the device bound session exists
 	s.mu.RLock()
@@ -296,102 +144,49 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 
 	// If no Sec-Session-Response, this is a request for a challenge
 	if secSessionResponse == "" {
-		// Generate a new challenge
-		challenge, err := generateDbscChallenge()
-		if err != nil {
-			log.Printf("Error generating challenge: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		// Generate a challengeId
-		challengeId, err := generateSessionID()
-		if err != nil {
-			log.Printf("Error generating challenge ID: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		// Store the challenge
-		now := time.Now()
-		dbscChallenge := DbscChallenge{
-			Challenge: challenge,
-			Username:  session.Username,
-			CreatedAt: now,
-			ExpiresAt: now.Add(time.Duration(dbscChallengeMaxAge) * time.Second),
-		}
-
-		s.mu.Lock()
-		s.dbscChallenges[challengeId] = dbscChallenge
-		s.mu.Unlock()
-
-		// Set a cookie with the challenge ID
-		http.SetCookie(w, &http.Cookie{
-			Name:     "dbsc_challenge",
-			Value:    challengeId,
-			Path:     "/",
-			MaxAge:   dbscChallengeMaxAge,
-			HttpOnly: true,
-			SameSite: http.SameSiteNoneMode,
-			Secure:   true, // Required for SameSite=None
-		})
-
-		// According to the spec, send a 401 with Sec-Session-Challenge header
-		challengeHeader := fmt.Sprintf("\"%s\";id=\"%s\"", challenge, deviceBoundSessionId)
-		w.Header().Set("Sec-Session-Challenge", challengeHeader)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized) // 401 to indicate authentication challenge
-
-		// Log the complete challenge response
-		log.Printf("===== [DBSC] REFRESH SESSION CHALLENGE RESPONSE =====")
-		log.Printf("Status: 401 Unauthorized")
-		log.Printf("--- Headers ---")
-		for name, values := range w.Header() {
-			for _, value := range values {
-				log.Printf("  %s: %s", name, value)
-			}
-		}
-		log.Printf("--- Cookies ---")
-		log.Printf("  dbsc_challenge: %s (MaxAge: %d, HttpOnly: true, SameSite: None, Secure: true)",
-			challengeId, dbscChallengeMaxAge)
-		log.Printf("--- Summary ---")
-		log.Printf("DeviceBoundSessionId: %s", deviceBoundSessionId)
-		log.Printf("Challenge: %s", challenge)
-		log.Printf("ChallengeId: %s", challengeId)
-		log.Printf("=====================================")
+		s.handleDbscRefreshSessionChallenge(w, r, deviceBoundSessionId, session)
 		return
 	}
 
 	// If we have a Sec-Session-Response, this is the browser's response to our challenge
-	// Get the challenge ID from cookie
-	cookie, err := r.Cookie("dbsc_challenge")
-	if err != nil || cookie.Value == "" {
-		log.Printf("No DBSC challenge cookie found")
-		http.Error(w, "Missing challenge cookie", http.StatusBadRequest)
+	s.handleDbscRefreshSessionResponse(w, r, deviceBoundSessionId, session, secSessionResponse)
+	return
+}
+
+// handleDbscRefreshSessionChallenge handles the challenge phase of DBSC refresh
+func (s *Server) handleDbscRefreshSessionChallenge(w http.ResponseWriter, r *http.Request, deviceBoundSessionId string, session Session) {
+	// Generate a new challenge for this user
+	challengeId, dbscChallenge, err := s.createDbscChallenge(session.Username)
+	if err != nil {
+		log.Printf("Error creating DBSC challenge: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	challengeId := cookie.Value
+	// Set a cookie with the challenge ID
+	setDbscChallengeCookie(w, r, challengeId)
 
-	// Get the challenge data
-	s.mu.RLock()
-	challenge, exists := s.dbscChallenges[challengeId]
-	s.mu.RUnlock()
+	// According to the spec, send a 401 with Sec-Session-Challenge header
+	addDbscChallengeHeader(w, dbscChallenge.Challenge, deviceBoundSessionId)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized) // 401 to indicate authentication challenge
 
-	if !exists {
-		log.Printf("Challenge not found: %s", challengeId)
+	// Log the challenge response
+	sessionInfo := map[string]string{
+		"DeviceBoundSessionId": deviceBoundSessionId,
+		"Challenge":            dbscChallenge.Challenge,
+		"ChallengeId":          challengeId,
+	}
+	logResponse("REFRESH SESSION CHALLENGE", w, http.StatusUnauthorized, nil, sessionInfo)
+}
+
+// handleDbscRefreshSessionResponse handles the response phase of DBSC refresh
+func (s *Server) handleDbscRefreshSessionResponse(w http.ResponseWriter, r *http.Request, deviceBoundSessionId string, session Session, secSessionResponse string) {
+	// Get and verify the DBSC challenge
+	challengeId, challenge, err := s.getAndVerifyDbscChallenge(r)
+	if err != nil {
+		log.Printf("[DBSC] %v", err)
 		http.Error(w, "Invalid challenge", http.StatusBadRequest)
-		return
-	}
-
-	// Check if challenge has expired
-	if time.Now().After(challenge.ExpiresAt) {
-		log.Printf("Challenge expired: %s", challengeId)
-		s.mu.Lock()
-		delete(s.dbscChallenges, challengeId)
-		s.mu.Unlock()
-		http.Error(w, "Challenge expired", http.StatusBadRequest)
 		return
 	}
 
@@ -414,18 +209,9 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Verify the subject matches the device bound session ID
-	// if jwtPayload.Sub != deviceBoundSessionId {
-	// 	log.Printf("[DBSC] Session ID mismatch: %s vs %s", jwtPayload.Sub, deviceBoundSessionId)
-	// 	http.Error(w, "Session ID mismatch", http.StatusBadRequest)
-	// 	return
-	// }
-
 	// Verify the audience matches the refresh endpoint URL
-	scheme := "https"
-	expectedAudience := fmt.Sprintf("%s://%s%s", scheme, r.Host, r.URL.Path)
-	if jwtPayload.Aud != expectedAudience {
-		log.Printf("[DBSC] Audience mismatch: %s vs %s", jwtPayload.Aud, expectedAudience)
+	if err := validateDbscJwtAudience(jwtPayload, r); err != nil {
+		log.Printf("[DBSC] %v", err)
 		http.Error(w, "Audience mismatch", http.StatusBadRequest)
 		return
 	}
@@ -433,122 +219,36 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 	// In a production implementation, we would also verify the signature
 	// using the public key stored during session registration
 
-	// Update the device bound session expiration time
-	now := time.Now()
-	session.ExpiresAt = now.Add(time.Duration(sessionMaxAge) * time.Second)
-
-	// Generate a new auth token
-	newAuthToken, err := generateSessionID()
+	// Update the device bound session and get a new auth token
+	newAuthToken, err := s.updateDeviceBoundSession(deviceBoundSessionId, session)
 	if err != nil {
-		log.Printf("Error generating new auth token: %v", err)
+		log.Printf("[DBSC] %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	s.mu.Lock()
-	// Update device bound session
-	s.sessions[deviceBoundSessionId] = session
+	// Clear the challenge cookie and remove it from the server
+	s.clearDbscChallenge(w, challengeId)
 
-	// Map the auth token directly to the device bound session ID
-	// This is more consistent with DBSC spec where the token is bound to the device session
-	s.authToLoginSession[newAuthToken] = deviceBoundSessionId
+	// Set a new auth cookie
+	setAuthCookie(w, r, newAuthToken)
 
-	// Remove any old auth tokens for this device bound session
-	for authToken, sid := range s.authToLoginSession {
-		if sid == deviceBoundSessionId && authToken != newAuthToken {
-			delete(s.authToLoginSession, authToken)
-		}
-	}
-
-	log.Printf("[DBSC] New auth token mapped to device bound session: %s", deviceBoundSessionId[:10]+"...")
-
-	// Remove the used challenge
-	delete(s.dbscChallenges, challengeId)
-	s.mu.Unlock()
-
-	// Clear the challenge cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "dbsc_challenge",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-	})
-
-	// Set a new auth cookie with short expiration
-	cookieName := "auth_cookie"
-	cookieValue := newAuthToken // Use a new secure token
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
-		Value:    cookieValue,
-		Path:     "/",
-		MaxAge:   cookieMaxAge,
-		HttpOnly: true,
-		SameSite: http.SameSiteNoneMode,
-		Secure:   true, // Required for SameSite=None
-	})
-
-	// Get proper scheme (http/https) for origin
-	response := DbscSessionRefreshResponse{
-		SessionIdentifier: deviceBoundSessionId,
-		RefreshURL:        fmt.Sprintf("%s://%s/securesession/refresh", scheme, r.Host),
-		Scope: struct {
-			Origin        string `json:"origin,omitempty"`
-			IncludeSite   bool   `json:"include_site,omitempty"`
-			DeferRequests bool   `json:"defer_requests,omitempty"`
-		}{
-			Origin:        fmt.Sprintf("%s://%s", scheme, r.Host),
-			IncludeSite:   true,
-			DeferRequests: true,
-		},
-		Credentials: []struct {
-			Type       string `json:"type,omitempty"`
-			Name       string `json:"name,omitempty"`
-			Attributes string `json:"attributes,omitempty"`
-		}{
-			{
-				Type:       "cookie",
-				Name:       cookieName,
-				Attributes: "Path=/; Max-Age=600; HttpOnly; Secure; SameSite=None",
-			},
-		},
-		Continue: true, // Continue the session
-	}
+	// Create response object
+	response := createDbscRefreshResponse(deviceBoundSessionId, r)
 
 	// Set response headers
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 
-	// Get response body before encoding
-	responseJSON, err := json.MarshalIndent(response, "", "  ")
-	if err != nil {
-		log.Printf("Error marshaling response: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	// Log the response
+	sessionInfo := map[string]string{
+		"User":                 session.Username,
+		"DeviceBoundSessionId": deviceBoundSessionId,
+		"NewAuthToken":         newAuthToken,
 	}
-
-	// Log the complete response
-	log.Printf("===== [DBSC] REFRESH SESSION RESPONSE =====")
-	log.Printf("Status: 200 OK")
-	log.Printf("--- Headers ---")
-	for name, values := range w.Header() {
-		for _, value := range values {
-			log.Printf("  %s: %s", name, value)
-		}
-	}
-	log.Printf("--- Cookies ---")
-	log.Printf("  %s: %s (MaxAge: %d, SameSite: None, Secure: true, HttpOnly: true)",
-		cookieName, cookieValue, cookieMaxAge)
-	log.Printf("--- Body ---")
-	log.Printf("%s", string(responseJSON))
-	log.Printf("--- Summary ---")
-	log.Printf("User: %s", session.Username)
-	log.Printf("DeviceBoundSessionId: %s", deviceBoundSessionId)
-	log.Printf("NewAuthToken: %s", newAuthToken)
-	log.Printf("=====================================")
+	logResponse("REFRESH SESSION RESPONSE", w, http.StatusOK, response, sessionInfo)
 
 	// Send the response
+	responseJSON, _ := json.MarshalIndent(response, "", "  ")
 	w.Write(responseJSON)
 }
