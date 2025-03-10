@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	"github.com/kouzoh/kokukuma-fido/internal/server"
+	"github.com/kokukuma/dbsc-example/internal/server"
 )
 
 func main() {

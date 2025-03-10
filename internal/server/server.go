@@ -9,16 +9,20 @@ import (
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/kokukuma/dbsc-example/internal/dbsc"
 )
 
 type Server struct {
-	users                []User
-	sessions             map[string]Session
-	dbscChallenges       map[string]DbscChallenge
+	users              []User
+	sessions           map[string]Session
+	authTokenToSession map[string]string
+	mu                 sync.RWMutex
+
+	// DBSC components
+	dbscHandler          *dbsc.Handler
 	dbscServerPrivateKey *ecdsa.PrivateKey
 	dbscServerPublicKey  string
-	authTokenToDeviceSession   map[string]string // Maps auth_cookie values to device bound session IDs
-	mu                   sync.RWMutex
 }
 
 func NewServer(webauthn interface{}) *Server {
@@ -47,11 +51,13 @@ func NewServer(webauthn interface{}) *Server {
 	server := &Server{
 		users:                users,
 		sessions:             make(map[string]Session),
-		dbscChallenges:       make(map[string]DbscChallenge),
+		authTokenToSession:   make(map[string]string),
 		dbscServerPrivateKey: privateKey,
 		dbscServerPublicKey:  string(publicKeyPEM),
-		authTokenToDeviceSession:   make(map[string]string), // Maps auth_cookie values to device bound session IDs
 	}
+
+	// Initialize DBSC handler with the server's private key
+	server.dbscHandler = dbsc.NewHandler(privateKey, "auth_cookie")
 
 	log.Println("DBSC server initialized with ES256 key pair")
 

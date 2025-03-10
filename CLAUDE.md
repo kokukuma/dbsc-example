@@ -8,6 +8,7 @@
 - `make tunnel` - Start ngrok tunnel for remote testing
 - `go test ./...` - Run all tests
 - `go test ./internal/server -v` - Run server tests verbosely
+- `go test ./internal/dbsc -v` - Run DBSC package tests verbosely
 
 ## Code Style Guidelines
 - **Formatting**: Use `gofmt`/`goimports` for consistent formatting
@@ -22,7 +23,13 @@
 ## Project Structure
 - `cmd/` - Entry points (server/client)
 - `internal/` - Private implementation code
-- `internal/server/` - Core server functionality with separate responsibility files
+- `internal/server/` - Core server functionality
+- `internal/dbsc/` - Device Bound Session Credentials implementation
+  - `protocol.go` - DBSC protocol and data structures
+  - `auth.go` - Session management and authentication
+  - `jwt.go` - JWT token handling
+  - `handlers.go` - HTTP handlers for DBSC endpoints
+  - `logging.go` - DBSC-specific logging
 
 ## Must read
 * DBSC Spec is in ./DBSC.md

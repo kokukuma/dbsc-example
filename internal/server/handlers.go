@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/kokukuma/dbsc-example/internal/dbsc"
 )
 
 // HandleLogin handles HTML form-based user login authentication
@@ -61,7 +63,9 @@ func (s *Server) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start DBSC flow - Generate a challenge and set cookie
-	challengeId, dbscChallenge, err := s.createDbscChallenge(username)
+	// Use the DBSC package's session manager to create a challenge
+	dbscMgr := s.dbscHandler.GetSessionManager()
+	challengeId, challenge, err := dbscMgr.CreateChallenge(username)
 	if err != nil {
 		log.Printf("Error creating DBSC challenge: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -69,13 +73,13 @@ func (s *Server) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set DBSC challenge cookie
-	setDbscChallengeCookie(w, r, challengeId)
+	dbsc.SetChallengeCookie(w, r, challengeId)
 
 	// Add the Sec-Session-Registration header
-	addDbscRegistrationHeader(w, dbscChallenge.Challenge)
+	dbsc.AddRegistrationHeader(w, challenge.Challenge)
 
 	log.Printf("[DBSC] Login form initiating DBSC flow - User: %s, Challenge: %s, ChallengeId: %s",
-		username, dbscChallenge.Challenge[:10]+"...", challengeId[:10]+"...")
+		username, challenge.Challenge[:10]+"...", challengeId[:10]+"...")
 
 	// Create a new login session
 	loginSessionId, err := s.createSession(username)
@@ -86,7 +90,7 @@ func (s *Server) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set session cookie
-	setCookie(w, r, "session_id", loginSessionId, sessionMaxAge, http.SameSiteStrictMode)
+	dbsc.SetCookie(w, r, "session_id", loginSessionId, sessionMaxAge, http.SameSiteStrictMode)
 
 	// Redirect to home page after successful login
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -107,13 +111,15 @@ func (s *Server) HandleHome(w http.ResponseWriter, r *http.Request) {
 		loggedIn = true
 
 		// Check for DBSC auth_cookie (separate from login status)
-		hasDbscCookie, dbscCookieValid = s.verifyDbscAuthCookie(r, username)
+		// Use the DBSC package's session manager to verify the auth cookie
+		dbscMgr := s.dbscHandler.GetSessionManager()
+		hasDbscCookie, dbscCookieValid = dbscMgr.VerifyAuthCookie(r, username, "auth_cookie")
 
 		if !hasDbscCookie {
 			log.Printf("No auth_cookie found but session_id is valid. Session not protected by DBSC.")
 			// Browser with native DBSC support will automatically establish protection
 		}
-		// If hasDbscCookie is true, verifyDbscAuthCookie has already logged the appropriate messages
+		// If hasDbscCookie is true, VerifyAuthCookie has already logged the appropriate messages
 	}
 
 	// Read the template file
@@ -158,9 +164,9 @@ func (s *Server) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear all cookies
-	clearCookie(w, "session_id")
-	clearCookie(w, "auth_cookie")
-	clearCookie(w, "dbsc_challenge")
+	dbsc.ClearCookie(w, "session_id")
+	dbsc.ClearCookie(w, "auth_cookie")
+	dbsc.ClearCookie(w, "dbsc_challenge")
 
 	// Redirect to home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
