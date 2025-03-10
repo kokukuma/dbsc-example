@@ -495,18 +495,18 @@ func (s *Server) HandleDbscRefreshSession(w http.ResponseWriter, r *http.Request
 		SessionIdentifier: deviceBoundSessionId,
 		RefreshURL:        fmt.Sprintf("%s://%s/securesession/refresh", scheme, r.Host),
 		Scope: struct {
-			Origin        string `json:"origin"`
-			IncludeSite   bool   `json:"include_site"`
-			DeferRequests bool   `json:"defer_requests"`
+			Origin        string `json:"origin,omitempty"`
+			IncludeSite   bool   `json:"include_site,omitempty"`
+			DeferRequests bool   `json:"defer_requests,omitempty"`
 		}{
 			Origin:        fmt.Sprintf("%s://%s", scheme, r.Host),
 			IncludeSite:   true,
 			DeferRequests: true,
 		},
 		Credentials: []struct {
-			Type       string `json:"type"`
-			Name       string `json:"name"`
-			Attributes string `json:"attributes"`
+			Type       string `json:"type,omitempty"`
+			Name       string `json:"name,omitempty"`
+			Attributes string `json:"attributes,omitempty"`
 		}{
 			{
 				Type:       "cookie",

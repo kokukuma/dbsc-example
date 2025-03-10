@@ -7,7 +7,7 @@ import (
 )
 
 // Maximum age of a session in seconds (30 minutes)
-const sessionMaxAge = 1800
+const sessionMaxAge = 18000
 
 // Maximum age of a DBSC challenge in seconds (5 minutes)
 const dbscChallengeMaxAge = 300
