@@ -27,7 +27,7 @@ This technology significantly improves web security by mitigating session hijack
 ### Prerequisites
 
 - Go 1.17 or later
-- Chrome 115 or later (for native DBSC support)
+- Chrome Canary 136.0.7059.0 or later (for native DBSC support)
 
 ### Installation
 
@@ -47,19 +47,30 @@ This technology significantly improves web security by mitigating session hijack
    go run cmd/server/server.go
    ```
 
-4. Access the application at `http://localhost:8080`
-
 ### Testing with DBSC Support
 
-For the full DBSC experience in Chrome:
+**IMPORTANT: DBSC requires HTTPS to function properly. For local testing, use an HTTPS tunnel (like ngrok) or set up a local HTTPS certificate.**
 
-1. Open Chrome 115 or later
-2. Go to `chrome://flags/#enable-standard-device-bound-session-credentials` 
-3. Set to "Enabled"
-4. Restart Chrome
-5. Visit the application at `http://localhost:8080`
+For the full DBSC experience in Chrome Canary:
+
+1. Open Chrome Canary 136.0.7059.0 or later
+2. Enable the following flags in `chrome://flags`:
+   - `#enable-bound-session-credentials-software-keys-for-manual-testing`
+   - `#enable-standard-device-bound-session-credentials`
+   - `#enable-standard-device-bound-session-persistence`
+3. Restart Chrome Canary
+4. Visit the application via HTTPS (e.g., using ngrok)
 
 For browsers without native DBSC support, the application includes a JavaScript simulation that demonstrates how DBSC works.
+
+## Setting up HTTPS with ngrok
+
+Since DBSC requires HTTPS, you can use ngrok for local testing:
+
+1. [Install ngrok](https://ngrok.com/download)
+2. Start your local server: `go run cmd/server/server.go`
+3. In another terminal, create an HTTPS tunnel: `ngrok http 8080`
+4. Use the HTTPS URL provided by ngrok to access the application
 
 ## Demo
 
@@ -76,34 +87,36 @@ For demo purposes, use the following credentials:
 
 See [DBSC.md](DBSC.md) for a complete explanation of the DBSC protocol and its security benefits.
 
-For technical implementation details, see [DBSC-implementation-notes.md](DBSC-implementation-notes.md).
-
 ## Project Structure
 
 - `cmd/server/server.go` - Main server application
 - `cmd/client/` - Client-side web application
-  - `dbsc-client.js` - JavaScript implementation of DBSC
   - `login.html` - Login page
   - `index.html` - Homepage
-- `internal/server/server.go` - Server-side DBSC implementation
+- `internal/server/` - Core server functionality
+- `internal/dbsc/` - DBSC implementation
+  - `protocol.go` - DBSC protocol and data structures
+  - `auth.go` - Session management and authentication
+  - `jwt.go` - JWT token handling
+  - `handlers.go` - HTTP handlers for DBSC endpoints
+  - `logging.go` - DBSC-specific logging
 
 ## Security Considerations
 
-This implementation is for demonstration and educational purposes. For production use:
+This implementation includes security best practices:
 
-1. Always use HTTPS for all DBSC communications
-2. Implement fallback for non-DBSC browsers
-3. Use HTTP-only, Secure cookies with proper SameSite attributes
-4. Store keys securely in server-side databases
-5. Rotate challenges and never reuse them
-6. Implement rate limiting to prevent brute force attacks
-7. Set appropriate timeouts for challenges and session registration
+1. DBSC requires HTTPS for all communications
+2. Device-bound sessions last 7 days, but auth cookies expire after 10 minutes
+3. HTTP-only, Secure cookies with proper SameSite attributes are used
+4. Challenges are never reused and expire after 5 minutes
+5. All cryptographic operations use secure, standard algorithms
 
 ## Resources
 
 - [Google DBSC Explainer](https://github.com/WICG/device-bound-session-credentials/blob/main/explainer.md)
 - [WICG Proposal](https://github.com/WICG/device-bound-session-credentials)
 - [Chrome Status](https://chromestatus.com/feature/5270503774167040)
+- [Fighting cookie theft using device bound sessions](https://blog.chromium.org/2024/04/fighting-cookie-theft-using-device.html)
 
 ## License
 
